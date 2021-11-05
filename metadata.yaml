@@ -4,9 +4,24 @@
 # For a complete list of supported options, see:
 # https://discourse.charmhub.io/t/charm-metadata-v2/3674/15
 name: mediawiki
-display-name: |
-  TEMPLATE-TODO: fill out a display name for the Charmcraft store
+display-name: Mediawiki
+summary: Website engine for collaborative work
 description: |
-  TEMPLATE-TODO: fill out the charm's description
-summary: |
-  TEMPLATE-TODO: fill out the charm's summary
+ MediaWiki is a wiki engine (a program for creating a collaboratively
+ edited website). It is designed to handle heavy websites containing
+ library-like document collections, and supports user uploads of
+ images/sounds, multilingual content, TOC autogeneration, ISBN links,
+ etc.
+tags:
+  - applications
+requires:
+  db:
+    interface: mysql
+  # TODO later
+  # slave:
+  #   interface: mysql
+  # cache:
+  #   interface: memcache
+provides:
+  website:
+    interface: http

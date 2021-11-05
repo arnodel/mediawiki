@@ -1,14 +1,33 @@
-# Copyright 2021 Ubuntu
-# See LICENSE file for licensing details.
-#
-# TEMPLATE-TODO: change this example to suit your needs.
-# If you don't need a config, you can remove the file entirely.
-# It ties in to the example _on_config_changed handler in src/charm.py
-#
-# Learn more about config at: https://juju.is/docs/sdk/config
-
 options:
-  thing:
-    default: 🎁
-    description: A thing used by the charm.
+  name:
+    default: Please set name of wiki
+    description: The name, or Title of the Wiki
     type: string
+  language:
+    default: en
+    description: The language code for the wiki
+    type: string
+  skin:
+    default: vector
+    description: skin for the Wiki
+    type: string
+  logo:
+    description: URL to fetch logo from
+    default: ''
+    type: string
+  server_address:
+    description: The server url to set "$wgServer". Useful for reverse proxies
+    default: ''
+    type: string
+  admins:
+    description: Admin users to create, user:pass
+    default: ''
+    type: string
+  use_suffix:
+    default: true
+    type: boolean
+    description: If we should put '/mediawiki' suffix on the url
+  debug:
+    default: false
+    type: boolean
+    description: turn on debugging features of mediawiki
