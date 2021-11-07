@@ -139,8 +139,18 @@ def install_mediawiki_packages():
     '''
     Set up the necessary packages for mediawiki to run
     '''
+    # Install mediawiki (which pulls php as a dependency) and imagemagick which
+    # allows mediawiki to perform image manipulation.
     check_call(["apt-get", "install", "-y", "mediawiki", "imagemagick"])
  
+    # Apache2 is configured by default to serve from /var/www/html.  We replace
+    # the DocumentRoot directive in the apache default configuration to point at
+    # the mediawiki root.
+    check_call(["sed",  "-i", 
+        "s|DocumentRoot .*|DocumentRoot /var/lib/mediawiki|", 
+        "/etc/apache2/sites-available/000-default.conf",
+    ])
+
 
 def install_mediawiki(db):
     '''
