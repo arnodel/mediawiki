@@ -201,6 +201,15 @@ def configure_mediawiki(conf):
     os.chmod(CONFIG_PHP_PATH, 0o644)
 
 
+def create_or_update_admin(username: str, pwd: str):
+        check_call(["php", f"{MEDIAWIKI_MAINTENANCE_ROOT}/createAndPromote.php",
+        "--conf", f"{MEDIAWIKI_CONFIG_DIR}/LocalSettings.php",
+        "--force",
+        "--sysop", "--bureaucrat",
+        username, pwd,
+        ])
+
+
 def reload_apache():
     check_call(["service", "apache2", "reload"])
 
