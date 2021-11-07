@@ -34,8 +34,8 @@ logger = logging.getLogger(__name__)
 # `templates.get_template(filename)`.
 templates =  Environment(loader=PackageLoader("src"))
 
-# Where to find the mediawiki install php script
-INSTALL_PHP = "/usr/share/mediawiki/maintenance/install.php"
+# Where to find the mediawiki maintenance php scripts
+MEDIAWIKI_MAINTENANCE_ROOT = "/usr/share/mediawiki/maintenance"
 
 # Where to put the mediawiki config files
 MEDIAWIKI_CONFIG_DIR = "/etc/mediawiki"
@@ -149,7 +149,7 @@ def install_mediawiki(db):
     # Call the mediawiki install script that creates the database tables if
     # necessary, creates an admin user and generates a LocalSettings.php file.
     # The fact that it does all these things in one go is a challenge!
-    check_call(["php", "/usr/share/mediawiki/maintenance/install.php",
+    check_call(["php", f"{MEDIAWIKI_MAINTENANCE_ROOT}/install.php",
         "--dbserver", db["private-address"],
         "--dbname", db["database"],
         "--dbuser", db["user"],
