@@ -216,9 +216,11 @@ def database_lock(db):
         password=db["password"],
         database=db["database"],
     )
+    # The idea is to have a table (charm_lock) and acquire a WRITE lock on it.
+    # Only one WRITE lock can be held on a table at a time.
     with connection.cursor() as cursor:
         cursor.execute("CREATE TABLE IF NOT EXISTS charm_lock(n int)")
-        cursor.execute("LOCK TABLES charm_lock")
+        cursor.execute("LOCK TABLES charm_lock WRITE")
         try:
             yield
         finally:
