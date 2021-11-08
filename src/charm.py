@@ -19,7 +19,7 @@ import secrets
 
 from jinja2 import Environment, FileSystemLoader
 
-from ops.charm import CharmBase, ConfigChangedEvent, InstallEvent, RelationChangedEvent, RelationCreatedEvent, RelationDepartedEvent, RelationJoinedEvent
+from ops.charm import CharmBase, ConfigChangedEvent, InstallEvent, RelationChangedEvent, RelationCreatedEvent, RelationDepartedEvent, RelationJoinedEvent, StartEvent
 from ops.framework import StoredState
 from ops.main import main
 from ops.model import ActiveStatus, BlockedStatus, MaintenanceStatus, WaitingStatus
@@ -51,6 +51,7 @@ class MediawikiCharm(CharmBase):
     def __init__(self, *args):
         super().__init__(*args)
         self.framework.observe(self.on.install, self._on_install)
+        self.framework.observe(self.on.start, self._on_start)
         self.framework.observe(self.on.config_changed, self._on_config_changed)
 
         self.framework.observe(self.on.db_relation_created, self._on_db_relation_created)
@@ -64,11 +65,14 @@ class MediawikiCharm(CharmBase):
         self.unit.status = MaintenanceStatus("Installing mediawiki packages")
         try:
             install_mediawiki_packages()
-            self.unit.status = self._get_db_relation_status()
+            self.unit.status = WaitingStatus("Mediawiki packages installed")
         except CalledProcessError as e:
             logger.error("Package install failed with error: %s", e)
             self.unit.status = BlockedStatus("Failed to install packages")
 
+    def _on_start(self, event: StartEvent) -> None:
+        check_call(["open-port", "80"])
+        self.unit.status = self._get_db_relation_status()
 
     def _on_config_changed(self, event: ConfigChangedEvent):
         self.unit.status = MaintenanceStatus("Updating Mediawiki configuration")
@@ -107,16 +111,6 @@ class MediawikiCharm(CharmBase):
         except Exception as e:
             logger.error("Uninstalling failed with error %s", e)
  
-    def _get_db_relation_status(self):
-        db_rel = self.model.get_relation("db")
-        if db_rel is None:
-            return BlockedStatus("Missing db relation")
-        db = db_rel.data[db_rel.app]
-        if not "database" in db:
-            return WaitingStatus("Waiting for connection data from db relation")
-        if is_mediawiki_installed():
-            return ActiveStatus()
-        return WaitingStatus("Waiting to install Mediawiki")        
 
 
     # Only non-leader units react to replicas_relation_changed.  It is a signal
@@ -132,13 +126,39 @@ class MediawikiCharm(CharmBase):
             # triggered the uninstallation, so there is nothing to do in this
             # case.
             return
-        db_rel = self.model.get_relation("db")
-        if db_rel is None or "database" not in db_rel.data[db_rel.app]:
+        db = self._get_db()
+        if not db:
+            logger.debug("No db connection data found even though the database is connected")
             return
-        self._install_mediawiki(db_rel.data[db_rel.app])
+        self._install_mediawiki(db)
 
 
     # Methods that help event hooks
+
+    def _get_db(self):
+        '''
+        Get db connection data from the relation if it exists
+        '''
+        db_rel = self.model.get_relation("db")
+        if db_rel is None:
+            return
+        remote_units = [u for u in db_rel.units if db_rel.app.name == u.name]
+        for u in db_rel.units:
+            if db_rel.app.name == u.name:
+                db = db_rel.data[u]
+                if not db["slave"] and "database" in db:
+                    return db
+
+    def _get_db_relation_status(self):
+        db_rel = self.model.get_relation("db")
+        if db_rel is None:
+            return BlockedStatus("Missing db relation")
+        db = db_rel.data[db_rel.app]
+        if "database" not in db:
+            return WaitingStatus("Waiting for connection data from db relation")
+        if is_mediawiki_installed():
+            return ActiveStatus()
+        return WaitingStatus("Waiting to install Mediawiki")        
 
     def _install_mediawiki(self, db):
         try:
