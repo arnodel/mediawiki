@@ -146,7 +146,7 @@ class MediawikiCharm(CharmBase):
         for u in db_rel.units:
             if u.name.startswith(db_app_pfx):
                 db = db_rel.data[u]
-                if not db["slave"] and "database" in db:
+                if db["slave"] == "False" and "database" in db:
                     return db
 
     def _get_db_relation_status(self):
