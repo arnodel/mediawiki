@@ -84,7 +84,6 @@ class MediawikiCharm(CharmBase):
             logger.error("Error configuring mediawiki: %s", e)
             self.unit.status = BlockedStatus("Failed to configure mediawiki")
 
-
     # Leader units do operations that affect the database, so only they react to
     # db_relation_changed events.  When they have created the database tables
     # successfully, they trigger an event on the peer relation "replicas" by
@@ -111,8 +110,6 @@ class MediawikiCharm(CharmBase):
         except Exception as e:
             logger.error("Uninstalling failed with error %s", e)
  
-
-
     # Only non-leader units react to replicas_relation_changed.  It is a signal
     # from the leader unit that the mediawiki tables have been installed so they
     # can safely run the installation script without a risk of race.
@@ -131,7 +128,6 @@ class MediawikiCharm(CharmBase):
             logger.debug("No db connection data found even though the database is connected")
             return
         self._install_mediawiki(db)
-
 
     # Methods that help event hooks
 
