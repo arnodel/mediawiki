@@ -222,7 +222,7 @@ def install_mediawiki(db):
     # only that file needs to be regenerated.
     with open(LOCALSETTINGS_PHP_PATH, "a") as f:
         f.write("\n")
-        f.write(f"include('{CONFIG_PHP_PATH}')")
+        f.write(f"include('{CONFIG_PHP_PATH}');")
 
 
 def is_mediawiki_installed():
