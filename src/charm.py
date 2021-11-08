@@ -111,7 +111,7 @@ class MediawikiCharm(CharmBase):
         rel = self.model.get_relation("db")
         if rel is None:
             return BlockedStatus("Missing db relation")
-        content = rel[self.unit]
+        content = rel.data[self.unit]
         if not "database" in content:
             return WaitingStatus("Waiting for connection data from db relation")
         if is_mediawiki_installed():
@@ -133,9 +133,9 @@ class MediawikiCharm(CharmBase):
             # case.
             return
         db_rel = self.model.get_relation("db")
-        if db_rel is None or "database" not in db_rel[db_rel.app]:
+        if db_rel is None or "database" not in db_rel.data[db_rel.app]:
             return
-        self._install_mediawiki(db_rel[db_rel.app])
+        self._install_mediawiki(db_rel.data[db_rel.app])
 
 
     def _install_mediawiki(self, db):
