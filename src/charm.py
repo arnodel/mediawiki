@@ -13,20 +13,16 @@ develop a new k8s charm using the Operator Framework:
 """
 
 import logging
-from dataclasses import dataclass
 from subprocess import check_call, CalledProcessError
 import os
 import secrets
-from contextlib import contextmanager
-from enum import Enum
 
 from jinja2 import Environment, FileSystemLoader
-import pymysql
 
-from ops.charm import CharmBase, ConfigChangedEvent, InstallEvent, RelationChangedEvent, RelationDepartedEvent, RelationJoinedEvent
+from ops.charm import CharmBase, ConfigChangedEvent, InstallEvent, RelationChangedEvent, RelationCreatedEvent, RelationDepartedEvent, RelationJoinedEvent
 from ops.framework import StoredState
 from ops.main import main
-from ops.model import ActiveStatus, BlockedStatus, MaintenanceStatus
+from ops.model import ActiveStatus, BlockedStatus, MaintenanceStatus, WaitingStatus
 
 logger = logging.getLogger(__name__)
 
@@ -44,14 +40,7 @@ MEDIAWIKI_CONFIG_DIR = "/etc/mediawiki"
 # charm config.
 CONFIG_PHP_PATH = f"{MEDIAWIKI_CONFIG_DIR}/config.php"
 
-
-class DbStatus(Enum):
-    '''
-    Status of the connection to the database
-    '''
-    DISCONNECTED = 1
-    JOINED = 2
-    CONNECTED = 3
+LOCALSETTINGS_PHP_PATH = f"{MEDIAWIKI_CONFIG_DIR}/LocalSettings.php"
 
 
 class MediawikiCharm(CharmBase):
@@ -63,71 +52,115 @@ class MediawikiCharm(CharmBase):
         super().__init__(*args)
         self.framework.observe(self.on.install, self._on_install)
         self.framework.observe(self.on.config_changed, self._on_config_changed)
+
+        self.framework.observe(self.on.db_relation_created, self._on_db_relation_created)
         self.framework.observe(self.on.db_relation_joined, self._on_db_relation_joined)
         self.framework.observe(self.on.db_relation_changed, self._on_db_relation_changed)
         self.framework.observe(self.on.db_relation_departed, self._on_db_relation_departed)
-    
-        # Keep track of the database connection status in order to report
-        # correct unit statuses.
-        self._stored.set_default(db_status=DbStatus.DISCONNECTED)
+
+        self.framework.observe(self.on.replicas_relation_changed, self._on_replicas_relation_changed)    
 
     def _on_install(self, event: InstallEvent) -> None:
-        self.unit.status = MaintenanceStatus("Installing packages")
+        self.unit.status = MaintenanceStatus("Installing mediawiki packages")
         try:
             install_mediawiki_packages()
-            self.unit.status = MaintenanceStatus("Packages installed")
+            self.unit.status = self._get_db_relation_status()
         except CalledProcessError as e:
-            logger.debug("Package install failed with return code", e.returncode)
+            logger.error("Package install failed with error: %s", e)
             self.unit.status = BlockedStatus("Failed to install packages")
 
+
     def _on_config_changed(self, event: ConfigChangedEvent):
-        self.unit.status = MaintenanceStatus("Configuring Mediawiki")
+        self.unit.status = MaintenanceStatus("Updating Mediawiki configuration")
         try:
             configure_mediawiki(self.config)
             reload_apache()
-            self._set_installed_unit_status()
+            self.unit.status = self._get_db_relation_status()
         except Exception as e:
-            logger.debug("Error configuring mediawiki: %s", e)
+            logger.error("Error configuring mediawiki: %s", e)
             self.unit.status = BlockedStatus("Failed to configure mediawiki")
 
 
+    # Leader units do operations that affect the database, so only they react to
+    # db_relation_changed events.  When they have created the database tables
+    # successfully, they trigger an event on the peer relation "replicas" by
+    # setting the "connected" key to True, thus indicating to the other units
+    # that they can also install mediawiki.
+
+    def _on_db_relation_created(self, event: RelationCreatedEvent) -> None:
+        self.unit.status = WaitingStatus("Waiting to join db relation")
+        
     def _on_db_relation_joined(self, event: RelationJoinedEvent) -> None:
-        self._stored.db_status = DbStatus.JOINED
-        self._set_installed_unit_status()
+        self.unit.status = WaitingStatus("Waiting for connection data from db relation")
     
     def _on_db_relation_changed(self, event: RelationChangedEvent) -> None:
+        if not self.unit.is_leader():
+            return
         db = event.relation.data[event.unit]
-        with database_lock(db):
-            # The mediawiki install script run below attempts to create all the
-            # database tables, skips otherwise. The lock context ensures that
-            # either all the tables are created or none are when the script
-            # runs.
-            try:
-                install_mediawiki(db)
-                reload_apache()
-                self._stored.db_status = DbStatus.CONNECTED
-                self._set_installed_unit_status()
-            except Exception as e:
-                logger.debug("Mediawiki install failed with error: %s", e)
-                self.unit.status = BlockedStatus("Failed to install mediawiki")
+        self._install_mediawiki(db)
 
     def _on_db_relation_departed(self, event: RelationDepartedEvent) -> None:
-        self._stored.db_status = DbStatus.DISCONNECTED
-        self._set_installed_unit_status()
+        self._set_db_connection_status(False)
+        self.unit.status = BlockedStatus("Missing db relation")
         try:
             uninstall_mediawiki()
         except Exception as e:
-            logger.debug("Uninstalling failed with error %s", e)
-    
-    def _set_installed_unit_status(self):
-        self.unit.status = unit_status_from_db_status[self._stored.db_status]
+            logger.error("Uninstalling failed with error %s", e)
+ 
+    def _get_db_relation_status(self):
+        rel = self.model.get_relation("db")
+        if rel is None:
+            return BlockedStatus("Missing db relation")
+        content = rel[self.unit]
+        if not "database" in content:
+            return WaitingStatus("Waiting for connection data from db relation")
+        if is_mediawiki_installed():
+            return ActiveStatus()
+        return WaitingStatus("Waiting to install Mediawiki")        
 
 
-unit_status_from_db_status = {
-    DbStatus.DISCONNECTED: BlockedStatus("Waiting for database"),
-    DbStatus.JOINED: MaintenanceStatus("Connecting to database"),
-    DbStatus.CONNECTED: ActiveStatus("Ready")
-}
+    # Only non-leader units react to replicas_relation_changed.  It is a signal
+    # from the leader unit that the mediawiki tables have been installed so they
+    # can safely run the installation script without a risk of race.
+
+    def _on_replicas_relation_changed(self, event: RelationChangedEvent) -> None:
+        if self.unit.is_leader():
+            return
+        conf = event.relation.data[event.app]
+        if not conf["connected"]:
+            # There should have been a db_relaction_departed event that
+            # triggered the uninstallation, so there is nothing to do in this
+            # case.
+            return
+        db_rel = self.model.get_relation("db")
+        if db_rel is None or "database" not in db_rel[db_rel.app]:
+            return
+        self._install_mediawiki(db_rel[db_rel.app])
+
+
+    def _install_mediawiki(self, db):
+        try:
+            self.unit.status = MaintenanceStatus("Updating mediawiki db configuration")
+            install_mediawiki(db)
+            reload_apache()
+            self._set_db_connection_status(True)
+            self.unit.status = ActiveStatus()
+        except Exception as e:
+            logger.error("Mediawiki install failed with error: %s", e)
+            self.unit.status = BlockedStatus("Failed to install mediawiki")
+
+    def _uninstall_mediawiki(self):
+        self._set_db_connection_status(False)
+        self.unit.status = BlockedStatus("Missing db relation")
+        try:
+            uninstall_mediawiki()
+        except Exception as e:
+            logger.error("Uninstalling failed with error %s", e)
+ 
+    def _set_db_connection_status(self, connected: bool) -> None:
+        if self.unit.is_leader():
+            return
+        self.model.get_relation("mediawiki-peer-config", "replicas").data[self.app]["connected"] = connected
 
 
 #
@@ -142,7 +175,7 @@ def install_mediawiki_packages():
     # Install mediawiki (which pulls php as a dependency) and imagemagick which
     # allows mediawiki to perform image manipulation.
     check_call(["apt-get", "install", "-y", "mediawiki", "imagemagick"])
- 
+
     # Apache2 is configured by default to serve from /var/www/html.  We replace
     # the DocumentRoot directive in the apache default configuration to point at
     # the mediawiki root.
@@ -150,6 +183,14 @@ def install_mediawiki_packages():
         "s|DocumentRoot .*|DocumentRoot /var/lib/mediawiki|", 
         "/etc/apache2/sites-available/000-default.conf",
     ])
+
+
+def are_mediawiki_packages_installed():
+    try:
+        check_call(["grep", "-q", "DocumentRoot /var/lib/mediawiki", "/etc/apache2/sites-available/000-default.conf"])
+        return True
+    except CalledProcessError:
+        return False
 
 
 def install_mediawiki(db):
@@ -179,9 +220,13 @@ def install_mediawiki(db):
 
     # Include the config.php file in LocalSettings.  When configuration changes,
     # only that file needs to be regenerated.
-    with open(f"{MEDIAWIKI_CONFIG_DIR}/LocalSettings.php", "a") as f:
+    with open(LOCALSETTINGS_PHP_PATH, "a") as f:
         f.write("\n")
         f.write(f"include('{CONFIG_PHP_PATH}')")
+
+
+def is_mediawiki_installed():
+    return os.path.exists(LOCALSETTINGS_PHP_PATH)
 
 
 def uninstall_mediawiki():
@@ -189,7 +234,10 @@ def uninstall_mediawiki():
     Remove the LocalSettings.php file,  returning mediawiki to its uninstalled
     state.
     '''
-    os.remove(f"{MEDIAWIKI_CONFIG_DIR}/LocalSettings.php")
+    try:
+        os.remove(LOCALSETTINGS_PHP_PATH)
+    except FileNotFoundError:
+        pass
 
 
 def configure_mediawiki(conf):
@@ -213,7 +261,7 @@ def configure_mediawiki(conf):
 
 def create_or_update_admin(username: str, pwd: str):
         check_call(["php", f"{MEDIAWIKI_MAINTENANCE_ROOT}/createAndPromote.php",
-        "--conf", f"{MEDIAWIKI_CONFIG_DIR}/LocalSettings.php",
+        "--conf", LOCALSETTINGS_PHP_PATH,
         "--force",
         "--sysop", "--bureaucrat",
         username, pwd,
@@ -222,29 +270,6 @@ def create_or_update_admin(username: str, pwd: str):
 
 def reload_apache():
     check_call(["service", "apache2", "reload"])
-
-
-@contextmanager
-def database_lock(db):
-    '''
-    Acquire a lock to the wiki database for the scope of the context.
-    '''
-    connection = pymysql.connect(
-        host=db["private-address"],
-        user=db["user"],
-        password=db["password"],
-        database=db["database"],
-    )
-    # The idea is to have a table (charm_lock) and acquire a WRITE lock on it.
-    # Only one WRITE lock can be held on a table at a time.
-    with connection.cursor() as cursor:
-        cursor.execute("CREATE TABLE IF NOT EXISTS charm_lock(n int)")
-        cursor.execute("LOCK TABLES charm_lock WRITE")
-        try:
-            yield
-        finally:
-            cursor.execute("UNLOCK TABLES")
-            connection.close()
 
 
 if __name__ == "__main__":
