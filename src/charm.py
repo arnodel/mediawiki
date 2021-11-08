@@ -20,7 +20,7 @@ import secrets
 from contextlib import contextmanager
 from enum import Enum
 
-from jinja2 import Environment, PackageLoader
+from jinja2 import Environment, FileSystemLoader
 import pymysql
 
 from ops.charm import CharmBase, ConfigChangedEvent, InstallEvent, RelationChangedEvent, RelationDepartedEvent, RelationJoinedEvent
@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 
 # Templates go in the "src/templates".  Get them with
 # `templates.get_template(filename)`.
-templates =  Environment(loader=PackageLoader("src"))
+templates =  Environment(loader=FileSystemLoader("src/templates"))
 
 # Where to find the mediawiki maintenance php scripts
 MEDIAWIKI_MAINTENANCE_ROOT = "/usr/share/mediawiki/maintenance"
