@@ -142,9 +142,9 @@ class MediawikiCharm(CharmBase):
         db_rel = self.model.get_relation("db")
         if db_rel is None:
             return
-        remote_units = [u for u in db_rel.units if db_rel.app.name == u.name]
+        db_app_pfx = db_rel.app.name + "/"
         for u in db_rel.units:
-            if db_rel.app.name == u.name:
+            if u.name.startswith(db_app_pfx):
                 db = db_rel.data[u]
                 if not db["slave"] and "database" in db:
                     return db
