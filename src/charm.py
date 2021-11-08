@@ -108,11 +108,11 @@ class MediawikiCharm(CharmBase):
             logger.error("Uninstalling failed with error %s", e)
  
     def _get_db_relation_status(self):
-        rel = self.model.get_relation("db")
-        if rel is None:
+        db_rel = self.model.get_relation("db")
+        if db_rel is None:
             return BlockedStatus("Missing db relation")
-        content = rel.data[self.unit]
-        if not "database" in content:
+        db = db_rel.data[db_rel.app]
+        if not "database" in db:
             return WaitingStatus("Waiting for connection data from db relation")
         if is_mediawiki_installed():
             return ActiveStatus()
@@ -137,6 +137,8 @@ class MediawikiCharm(CharmBase):
             return
         self._install_mediawiki(db_rel.data[db_rel.app])
 
+
+    # Methods that help event hooks
 
     def _install_mediawiki(self, db):
         try:
