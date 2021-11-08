@@ -118,8 +118,8 @@ class MediawikiCharm(CharmBase):
         if self.unit.is_leader():
             return
         conf = event.relation.data[event.app]
-        if not conf["connected"]:
-            # There should have been a db_relaction_departed event that
+        if conf.get("status") != "connected":
+            # There should have been a db_relation_departed event that
             # triggered the uninstallation, so there is nothing to do in this
             # case.
             return
@@ -176,9 +176,9 @@ class MediawikiCharm(CharmBase):
             logger.error("Uninstalling failed with error %s", e)
  
     def _set_db_connection_status(self, connected: bool) -> None:
-        if self.unit.is_leader():
+        if not self.unit.is_leader():
             return
-        self.model.get_relation("mediawiki-peer-config", "replicas").data[self.app]["connected"] = connected
+        self.model.get_relation("replicas").data[self.app]["status"] = "connected" if connected else "disconnected"
 
 
 #
