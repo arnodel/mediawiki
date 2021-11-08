@@ -231,6 +231,7 @@ def install_mediawiki(db):
         "--installdbuser", db["user"],
         "--installdbpass", db["password"],
         "--pass", secrets.token_urlsafe(32),
+        "--scriptpath", ""
         "Charmed Wiki",
         "generic_charm_admin"
     ])
