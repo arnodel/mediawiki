@@ -23,8 +23,8 @@ requires:
   # TODO later
   # slave:
   #   interface: mysql
-  # cache:
-  #   interface: memcache
+  cache:
+    interface: memcache
 provides:
   website:
     interface: http

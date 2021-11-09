@@ -46,6 +46,7 @@ MEDIAWIKI_ROOT_DIR = "/var/lib/mediawiki"
 # charm config.
 CONFIG_PHP_PATH = f"{MEDIAWIKI_CONFIG_DIR}/config.php"
 
+MEMCACHED_PHP_PATH = f"{MEDIAWIKI_CONFIG_DIR}/memcached.php"
 LOCALSETTINGS_PHP_PATH = f"{MEDIAWIKI_CONFIG_DIR}/LocalSettings.php"
 
 
@@ -66,6 +67,11 @@ class MediawikiCharm(CharmBase):
         self.framework.observe(self.on.db_relation_departed, self._on_db_relation_departed)
 
         self.framework.observe(self.on.replicas_relation_changed, self._on_replicas_relation_changed)    
+
+        self.framework.observe(self.on.cache_relation_changed, self._on_cache_relation_changed)
+        self.framework.observe(self.on.cache_relation_departed, self._on_cache_relation_departed)
+
+    # Lifecycle hooks
 
     def _on_install(self, event: InstallEvent) -> None:
         self.unit.status = MaintenanceStatus("Installing mediawiki packages")
@@ -136,6 +142,33 @@ class MediawikiCharm(CharmBase):
             logger.debug("No db connection data found even though the database is connected")
             return
         self._install_mediawiki(db)
+
+
+    # All units configure themseleves to use memcached
+
+    def _on_cache_relation_changed(self, event: RelationChangedEvent) -> None:
+        try:
+            servers = []
+            for unit in event.relation.units:
+                unit_data = event.relation.data[unit]
+                if "private-address" in unit_data and "port" in unit_data:
+                    servers.append({
+                        "address": unit_data["private-address"],
+                        "port": unit_data["port"],
+                    })
+            configure_memcached(servers)
+            reload_apache()
+        except Exception as e:
+            logger.error("Failed to configure memcached: %s", e)
+            self.unit.status = BlockedStatus("Memcached configuration failed")
+    
+    def _on_cache_relation_departed(self, event: RelationDepartedEvent) -> None:
+        try:
+            configure_memcached(None)
+            reload_apache()
+        except Exception as e:
+            logger.error("Unable to remove memcached configuration: %s", e)
+            self.unit.status = BlockedStatus("Memcached removal failed")
 
     # Methods that help event hooks
 
@@ -240,16 +273,17 @@ def install_mediawiki(db):
         "generic_charm_admin"
     ])
 
-    # Make sure the config.php file exists, as LocalSettings will include it.
-    with open(CONFIG_PHP_PATH, "a"):
-        pass
-    os.chmod(CONFIG_PHP_PATH, 0o644)
+    # Make sure the config.php amd memcached.php files exists, as LocalSettings
+    # will include them.
+    touch_config(CONFIG_PHP_PATH)
+    touch_config(MEMCACHED_PHP_PATH)
 
     # Include the config.php file in LocalSettings.  When configuration changes,
     # only that file needs to be regenerated.
     with open(LOCALSETTINGS_PHP_PATH, "a") as f:
         f.write("\n")
-        f.write(f"include('{CONFIG_PHP_PATH}');")
+        f.write(f"include('{CONFIG_PHP_PATH}');\n")
+        f.write(f"include('{MEMCACHED_PHP_PATH}');\n")
 
 
 def is_mediawiki_installed():
@@ -281,9 +315,7 @@ def configure_mediawiki(conf):
         logo_path=fetch_logo(conf["logo"]),
         debug_file="" if not conf["debug"] else os.getcwd() + "/debug.log",
     )
-    with open(CONFIG_PHP_PATH, "w") as f:
-        f.write(config_php)
-    os.chmod(CONFIG_PHP_PATH, 0o644)
+    write_config(CONFIG_PHP_PATH, config_php)
     
 
 def fetch_logo(logo_url) -> str:
@@ -337,6 +369,12 @@ def setup_admins(admins: str):
 
 
 def parse_admins(admins: str):
+    '''
+    Parse a string of the form "<name1>:<pwd1> <name2>:<pwd2> ..." into
+    a list of pairs [["<name1>", "<pwd1>"], ["<name2>", "<pwd2>"], ...]
+
+    Raise a ValueError if the string is not of the correct format.
+    '''
     name_pwd_pairs = []
     for item in admins.split():
         if ":" not in item:
@@ -346,16 +384,53 @@ def parse_admins(admins: str):
 
 
 def create_or_update_admin(username: str, pwd: str):
-        check_call(["php", f"{MEDIAWIKI_MAINTENANCE_ROOT}/createAndPromote.php",
+    '''
+    Make sure the specified user exists, has the given password and is an
+    "admin", i.e. belongs to the sysop and bureaucrat groups.
+    '''
+    check_call(["php", f"{MEDIAWIKI_MAINTENANCE_ROOT}/createAndPromote.php",
         "--conf", LOCALSETTINGS_PHP_PATH,
         "--force",
         "--sysop", "--bureaucrat",
         username, pwd,
-        ])
+    ])
+
+
+def configure_memcached(servers):
+    '''
+    Update the memcached configuration with the given servers.  If servers is
+    falsy, instead remove memcached configuration.
+    '''
+    if not servers:
+        memcached_php = ""
+    else:
+        template = templates.get_template("memcached.php")
+        memcached_php = template.render(servers=servers)
+    write_config(MEMCACHED_PHP_PATH, memcached_php)
 
 
 def reload_apache():
     check_call(["service", "apache2", "reload"])
+
+
+def touch_config(path):
+    '''
+    Ensure a file exists (potentially creating an empty file) with suitable
+    permissions for being read as config for mediawiki.
+    '''
+    with open(path, "a"):
+        pass
+    os.chmod(path, 0o644)
+
+
+def write_config(path: str, content: str):
+    '''
+    Write a file to disk with suitable permissions for being read as config for
+    mediawiki.
+    '''
+    with open(path, "w") as f:
+        f.write(content)
+    os.chmod(path, 0o644)
 
 
 if __name__ == "__main__":
