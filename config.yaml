@@ -23,10 +23,6 @@ options:
     description: Admin users to create, user:pass
     default: ''
     type: string
-  use_suffix:
-    default: true
-    type: boolean
-    description: If we should put '/mediawiki' suffix on the url
   debug:
     default: false
     type: boolean
