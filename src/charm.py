@@ -16,6 +16,9 @@ import logging
 from subprocess import check_call, CalledProcessError
 import os
 import secrets
+import urllib.request
+import shutil
+import imghdr
 
 from jinja2 import Environment, FileSystemLoader
 
@@ -35,6 +38,9 @@ MEDIAWIKI_MAINTENANCE_ROOT = "/usr/share/mediawiki/maintenance"
 
 # Where to put the mediawiki config files
 MEDIAWIKI_CONFIG_DIR = "/etc/mediawiki"
+
+# Root of the mediawiki installation
+MEDIAWIKI_ROOT_DIR = "/var/lib/mediawiki"
 
 # Path of the config.php file containing the configuration generated from the
 # charm config.
@@ -198,14 +204,14 @@ def install_mediawiki_packages():
     # the DocumentRoot directive in the apache default configuration to point at
     # the mediawiki root.
     check_call(["sed",  "-i", 
-        "s|DocumentRoot .*|DocumentRoot /var/lib/mediawiki|", 
+        f"s|DocumentRoot .*|DocumentRoot {MEDIAWIKI_ROOT_DIR}|", 
         "/etc/apache2/sites-available/000-default.conf",
     ])
 
 
 def are_mediawiki_packages_installed():
     try:
-        check_call(["grep", "-q", "DocumentRoot /var/lib/mediawiki", "/etc/apache2/sites-available/000-default.conf"])
+        check_call(["grep", "-q", f"DocumentRoot {MEDIAWIKI_ROOT_DIR}", "/etc/apache2/sites-available/000-default.conf"])
         return True
     except CalledProcessError:
         return False
@@ -270,12 +276,52 @@ def configure_mediawiki(conf):
         language_code=conf["language"],
         skin=conf["skin"],
         server_address=conf["server_address"],
-        logo="",     # TODO
+        logo_path=fetch_logo(conf["logo"]),
         debug_file="" if not conf["debug"] else os.getcwd() + "/debug.log",
     )
     with open(CONFIG_PHP_PATH, "w") as f:
         f.write(config_php)
     os.chmod(CONFIG_PHP_PATH, 0o644)
+
+
+def fetch_logo(logo_url) -> str:
+    '''
+    Fetch the wiki logo from the given URL if necessary, returning the file path
+    where it has been stored
+    '''
+
+    if not logo_url:
+        return
+
+    url_logo_path = "/images/wiki_logo"
+    fs_logo_path = f"{MEDIAWIKI_ROOT_DIR}{url_logo_path}"
+    logo_src_path = f"{MEDIAWIKI_CONFIG_DIR}/logo_url"
+
+    # Check for an already downloaded this image and return early if that's the
+    # case
+    try:
+        with open(logo_src_path) as f:
+            previous_url = f.read()
+    except FileNotFoundError:
+        previous_url = ""
+    if logo_url == previous_url:
+        return url_logo_path
+    
+    # Fetch the image and store it
+    with urllib.request.urlopen(logo_url) as response:
+        content = response.read()
+        ext = imghdr.what(response, content)
+    if ext is None:
+        raise ValueError("logo is not an image")
+    with open(fs_logo_path, "wb") as f:
+        f.write(content)
+    
+    # Remember we've done that
+    with open(logo_src_path, "w") as f:
+        f.write(logo_url)
+
+    shutil.chown(fs_logo_path, user="www-data", group="www-data")
+    return url_logo_path
 
 
 def create_or_update_admin(username: str, pwd: str):

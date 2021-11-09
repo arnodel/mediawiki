@@ -9,17 +9,17 @@ $wgLanguageCode = "{{ language_code }}";
 ## names, ie 'vector', 'monobook':
 $wgDefaultSkin = "{{ skin }}";
 
-{% if logo != "" %}
+{% if logo_path %}
 ## The URL path to the logo.  Make sure you change this from the default,
 ## or else you'll overwrite your logo when you upgrade!
-$wgLogo = "$wgResourceBasePath/resources/assets/wiki.png";
+$wgLogo = "{{ logo_path }}";
 {% endif %}
 
-{% if server_address != "" %}
+{% if server_address %}
 $wgServer = "{{ server_address }}"
 {% endif %}
 
-{% if debug_file != "" %}
+{% if debug_file %}
 $wgDebugLogFile = "{{ debug_file }}";
 $wgDebugComments = true;
 $wgShowExceptionDetails = true;
