@@ -19,6 +19,7 @@ import secrets
 import urllib.request
 import shutil
 import imghdr
+import tempfile
 
 from jinja2 import Environment, FileSystemLoader
 
@@ -66,6 +67,7 @@ class MediawikiCharm(CharmBase):
         self.framework.observe(self.on.db_relation_changed, self._on_db_relation_changed)
         self.framework.observe(self.on.db_relation_departed, self._on_db_relation_departed)
 
+        self.framework.observe(self.on.replicas_relation_joined, self._on_cache_relation_changed)
         self.framework.observe(self.on.replicas_relation_changed, self._on_replicas_relation_changed)    
 
         self.framework.observe(self.on.cache_relation_changed, self._on_cache_relation_changed)
@@ -232,7 +234,15 @@ class MediawikiCharm(CharmBase):
     def _set_db_connection_status(self, connected: bool) -> None:
         if not self.unit.is_leader():
             return
-        self.model.get_relation("replicas").data[self.app]["status"] = "connected" if connected else "disconnected"
+        app_data = self.model.get_relation("replicas").data[self.app]
+        app_data.update({
+            "status": "connected" if connected else "disconnected",
+            "revision": str(int(app_data.get("revision", 0)) + 1),
+        })
+
+    def _get_db_connection_status(self) -> bool:
+        app_data = self.model.get_relation("replicas").data[self.app]
+        return app_data.get("status") == "connected"
 
 
 #
@@ -272,31 +282,36 @@ def install_mediawiki(db):
     # Call the mediawiki install script that creates the database tables if
     # necessary, creates an admin user and generates a LocalSettings.php file.
     # The fact that it does all these things in one go is a challenge!
-    check_call(["php", f"{MEDIAWIKI_MAINTENANCE_ROOT}/install.php",
-        "--dbserver", db["private-address"],
-        "--dbname", db["database"],
-        "--dbuser", db["user"],
-        "--dbpass", db["password"],
-        "--confpath", MEDIAWIKI_CONFIG_DIR,
-        "--installdbuser", db["user"],
-        "--installdbpass", db["password"],
-        "--pass", secrets.token_urlsafe(32),
-        "--scriptpath", "",
-        "Charmed Wiki",
-        "generic_charm_admin"
-    ])
+    with tempfile.TemporaryDirectory() as temp_dir:
+        check_call(["php", f"{MEDIAWIKI_MAINTENANCE_ROOT}/install.php",
+            "--dbserver", db["private-address"],
+            "--dbname", db["database"],
+            "--dbuser", db["user"],
+            "--dbpass", db["password"],
+            "--confpath", temp_dir,
+            "--installdbuser", db["user"],
+            "--installdbpass", db["password"],
+            "--pass", secrets.token_urlsafe(32),
+            "--scriptpath", "",
+            "Charmed Wiki",
+            "generic_charm_admin"
+        ])
+        
+        # Include the config.php file in LocalSettings.  When configuration changes,
+        # only that file needs to be regenerated.
+        with open(f"{temp_dir}/LocalSettings.php", "a") as f:
+            f.write("\n")
+            f.write(f"include('{CONFIG_PHP_PATH}');\n")
+            f.write(f"include('{MEMCACHED_PHP_PATH}');\n")
 
-    # Make sure the config.php amd memcached.php files exists, as LocalSettings
-    # will include them.
-    touch_config(CONFIG_PHP_PATH)
-    touch_config(MEMCACHED_PHP_PATH)
+        # Make sure the config.php amd memcached.php files exists, as LocalSettings
+        # will include them.
+        touch_config(CONFIG_PHP_PATH)
+        touch_config(MEMCACHED_PHP_PATH)
 
-    # Include the config.php file in LocalSettings.  When configuration changes,
-    # only that file needs to be regenerated.
-    with open(LOCALSETTINGS_PHP_PATH, "a") as f:
-        f.write("\n")
-        f.write(f"include('{CONFIG_PHP_PATH}');\n")
-        f.write(f"include('{MEMCACHED_PHP_PATH}');\n")
+        # Finally swap in the configuration
+        os.rename(f"{temp_dir}/LocalSettings.php", LOCALSETTINGS_PHP_PATH)
+
 
 
 def is_mediawiki_installed():
