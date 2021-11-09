@@ -71,6 +71,8 @@ class MediawikiCharm(CharmBase):
         self.framework.observe(self.on.cache_relation_changed, self._on_cache_relation_changed)
         self.framework.observe(self.on.cache_relation_departed, self._on_cache_relation_departed)
 
+        self.framework.observe(self.on.website_relation_joined, self._on_website_relation_joined)
+
     # Lifecycle hooks
 
     def _on_install(self, event: InstallEvent) -> None:
@@ -144,7 +146,8 @@ class MediawikiCharm(CharmBase):
         self._install_mediawiki(db)
 
 
-    # All units configure themseleves to use memcached
+    # All units configure themseleves to use memcached, making use off all
+    # memcached units.
 
     def _on_cache_relation_changed(self, event: RelationChangedEvent) -> None:
         try:
@@ -169,6 +172,16 @@ class MediawikiCharm(CharmBase):
         except Exception as e:
             logger.error("Unable to remove memcached configuration: %s", e)
             self.unit.status = BlockedStatus("Memcached removal failed")
+
+    # The website relation implements providing the http interface, so it must
+    # expose a port and a hostname to consumers of this interface.
+
+    def _on_website_relation_joined(self, event: RelationJoinedEvent) -> None:
+        unit_data = event.relation.data[self.unit]
+        unit_data.update({
+            "port": "80",
+            "hostname": unit_data["private-address"]
+        })
 
     # Methods that help event hooks
 
