@@ -84,6 +84,8 @@ class MediawikiCharm(CharmBase):
         self.unit.status = MaintenanceStatus("Updating Mediawiki configuration")
         try:
             configure_mediawiki(self.config)
+            if self.unit.is_leader() and self.config["admins"]:
+                setup_admins(self.config["admins"])
             reload_apache()
             self.unit.status = self._get_db_relation_status()
         except Exception as e:
@@ -282,7 +284,7 @@ def configure_mediawiki(conf):
     with open(CONFIG_PHP_PATH, "w") as f:
         f.write(config_php)
     os.chmod(CONFIG_PHP_PATH, 0o644)
-
+    
 
 def fetch_logo(logo_url) -> str:
     '''
@@ -322,6 +324,25 @@ def fetch_logo(logo_url) -> str:
 
     shutil.chown(fs_logo_path, user="www-data", group="www-data")
     return url_logo_path
+
+
+def setup_admins(admins: str):
+    '''
+    Make sure the given admin users are setup.
+
+    TODO: remove other admins?
+    '''
+    for username, pwd in parse_admins(admins):
+        create_or_update_admin(username, pwd)
+
+
+def parse_admins(admins: str):
+    name_pwd_pairs = []
+    for item in admins.split():
+        if ":" not in item:
+            raise ValueError("admin should be in format user:pass")
+        name_pwd_pairs.append(item.split(":", 1))
+    return name_pwd_pairs
 
 
 def create_or_update_admin(username: str, pwd: str):
