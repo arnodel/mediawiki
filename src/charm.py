@@ -23,7 +23,10 @@ import tempfile
 
 from jinja2 import Environment, FileSystemLoader
 
-from ops.charm import CharmBase, ConfigChangedEvent, InstallEvent, RelationChangedEvent, RelationCreatedEvent, RelationDepartedEvent, RelationJoinedEvent, StartEvent
+from ops.charm import (
+    CharmBase, ConfigChangedEvent, InstallEvent, RelationChangedEvent, RelationCreatedEvent,
+    RelationDepartedEvent, RelationJoinedEvent, StartEvent,
+)
 from ops.framework import StoredState
 from ops.main import main
 from ops.model import ActiveStatus, BlockedStatus, MaintenanceStatus, WaitingStatus
@@ -32,7 +35,7 @@ logger = logging.getLogger(__name__)
 
 # Templates go in the "src/templates".  Get them with
 # `templates.get_template(filename)`.
-templates =  Environment(loader=FileSystemLoader("src/templates"))
+templates = Environment(loader=FileSystemLoader("src/templates"))
 
 # Where to find the mediawiki maintenance php scripts
 MEDIAWIKI_MAINTENANCE_ROOT = "/usr/share/mediawiki/maintenance"
@@ -73,8 +76,10 @@ class MediawikiCharm(CharmBase):
         self.framework.observe(self.on.db_relation_changed, self._on_db_relation_changed)
         self.framework.observe(self.on.db_relation_departed, self._on_db_relation_departed)
 
-        self.framework.observe(self.on.replicas_relation_joined, self._on_cache_relation_changed)
-        self.framework.observe(self.on.replicas_relation_changed, self._on_replicas_relation_changed)    
+        self.framework.observe(self.on.replicas_relation_joined,
+                               self._on_replicas_relation_changed)
+        self.framework.observe(self.on.replicas_relation_changed,
+                               self._on_replicas_relation_changed)
 
         self.framework.observe(self.on.cache_relation_changed, self._on_cache_relation_changed)
         self.framework.observe(self.on.cache_relation_departed, self._on_cache_relation_departed)
@@ -116,10 +121,10 @@ class MediawikiCharm(CharmBase):
 
     def _on_db_relation_created(self, event: RelationCreatedEvent) -> None:
         self.unit.status = WaitingStatus("Waiting to join db relation")
-        
+
     def _on_db_relation_joined(self, event: RelationJoinedEvent) -> None:
         self.unit.status = WaitingStatus("Waiting for connection data from db relation")
-    
+
     def _on_db_relation_changed(self, event: RelationChangedEvent) -> None:
         if not self.unit.is_leader():
             return
@@ -133,7 +138,7 @@ class MediawikiCharm(CharmBase):
             uninstall_mediawiki()
         except Exception as e:
             logger.error("Uninstalling failed with error %s", e)
- 
+
     # Only non-leader units react to replicas_relation_changed.  It is a signal
     # from the leader unit that the mediawiki tables have been installed so they
     # can safely run the installation script without a risk of race.
@@ -153,7 +158,6 @@ class MediawikiCharm(CharmBase):
             return
         self._install_mediawiki(db)
 
-
     # All units configure themseleves to use memcached, making use off all
     # memcached units.
 
@@ -172,7 +176,7 @@ class MediawikiCharm(CharmBase):
         except Exception as e:
             logger.error("Failed to configure memcached: %s", e)
             self.unit.status = BlockedStatus("Memcached configuration failed")
-    
+
     def _on_cache_relation_departed(self, event: RelationDepartedEvent) -> None:
         try:
             configure_memcached(None)
@@ -217,7 +221,7 @@ class MediawikiCharm(CharmBase):
             return WaitingStatus("Waiting for connection data from db relation")
         if is_mediawiki_installed():
             return ActiveStatus()
-        return WaitingStatus("Waiting to install Mediawiki")        
+        return WaitingStatus("Waiting to install Mediawiki")
 
     def _install_mediawiki(self, db):
         try:
@@ -237,7 +241,7 @@ class MediawikiCharm(CharmBase):
             uninstall_mediawiki()
         except Exception as e:
             logger.error("Uninstalling failed with error %s", e)
- 
+
     def _set_db_connection_status(self, connected: bool) -> None:
         if not self.unit.is_leader():
             return
@@ -268,15 +272,20 @@ def install_mediawiki_packages():
     # Apache2 is configured by default to serve from /var/www/html.  We replace
     # the DocumentRoot directive in the apache default configuration to point at
     # the mediawiki root.
-    check_call(["sed",  "-i", 
-        f"s|DocumentRoot .*|DocumentRoot {MEDIAWIKI_ROOT_DIR}|", 
+    check_call([
+        "sed", "-i",
+        f"s|DocumentRoot .*|DocumentRoot {MEDIAWIKI_ROOT_DIR}|",
         "/etc/apache2/sites-available/000-default.conf",
     ])
 
 
 def are_mediawiki_packages_installed():
     try:
-        check_call(["grep", "-q", f"DocumentRoot {MEDIAWIKI_ROOT_DIR}", "/etc/apache2/sites-available/000-default.conf"])
+        check_call([
+            "grep", "-q",
+            f"DocumentRoot {MEDIAWIKI_ROOT_DIR}",
+            "/etc/apache2/sites-available/000-default.conf",
+        ])
         return True
     except CalledProcessError:
         return False
@@ -290,7 +299,8 @@ def install_mediawiki(db):
     # necessary, creates an admin user and generates a LocalSettings.php file.
     # The fact that it does all these things in one go is a challenge!
     with tempfile.TemporaryDirectory() as temp_dir:
-        check_call(["php", f"{MEDIAWIKI_MAINTENANCE_ROOT}/install.php",
+        check_call([
+            "php", f"{MEDIAWIKI_MAINTENANCE_ROOT}/install.php",
             "--dbserver", db["private-address"],
             "--dbname", db["database"],
             "--dbuser", db["user"],
@@ -303,7 +313,7 @@ def install_mediawiki(db):
             "Charmed Wiki",
             "generic_charm_admin"
         ])
-        
+
         # Include the config.php file in LocalSettings.  When configuration changes,
         # only that file needs to be regenerated.
         with open(f"{temp_dir}/LocalSettings.php", "a") as f:
@@ -318,7 +328,6 @@ def install_mediawiki(db):
 
         # Finally swap in the configuration
         os.rename(f"{temp_dir}/LocalSettings.php", LOCALSETTINGS_PHP_PATH)
-
 
 
 def is_mediawiki_installed():
@@ -351,7 +360,7 @@ def configure_mediawiki(conf):
         debug_file="" if not conf["debug"] else os.getcwd() + "/debug.log",
     )
     write_config(CONFIG_PHP_PATH, config_php)
-    
+
 
 def fetch_logo(logo_url) -> str:
     '''
@@ -375,7 +384,7 @@ def fetch_logo(logo_url) -> str:
         previous_url = ""
     if logo_url == previous_url:
         return url_logo_path
-    
+
     # Fetch the image and store it
     with urllib.request.urlopen(logo_url) as response:
         content = response.read()
@@ -384,7 +393,7 @@ def fetch_logo(logo_url) -> str:
         raise ValueError("logo is not an image")
     with open(fs_logo_path, "wb") as f:
         f.write(content)
-    
+
     # Remember we've done that
     with open(logo_src_path, "w") as f:
         f.write(logo_url)
@@ -423,7 +432,8 @@ def create_or_update_admin(username: str, pwd: str):
     Make sure the specified user exists, has the given password and is an
     "admin", i.e. belongs to the sysop and bureaucrat groups.
     '''
-    check_call(["php", f"{MEDIAWIKI_MAINTENANCE_ROOT}/createAndPromote.php",
+    check_call([
+        "php", f"{MEDIAWIKI_MAINTENANCE_ROOT}/createAndPromote.php",
         "--conf", LOCALSETTINGS_PHP_PATH,
         "--force",
         "--sysop", "--bureaucrat",
