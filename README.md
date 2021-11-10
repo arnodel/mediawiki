@@ -45,6 +45,15 @@ This will set the name of the Wiki installation.
 
     juju config mediawiki name='Juju Wiki!'
 
+### Mediawiki logo ($wgLogo)
+
+If you have a URL pointing at the image logo you can set the `logo` config, e.g.
+
+    juju config mediawiki logo='https://assets.ubuntu.com/v1/9ce5bce5-canonical-logo3.png'
+
+This will check that the URL contains an image, download it locally and set it
+up as the wiki logo.
+
 ### Skin ($wgDefaultSkin)
 
 As the option implies, this sets the default skin for all new users and anonymous users.
@@ -55,24 +64,31 @@ One limitation is already registered users will have whatever Skin was set as
 the default applied to their account. This is a [MediaWiki "limitation"][4]. See
 caveats for more information on running Maintenance scripts.
 
+### Language ($wgLanguageCode)
+
+This sets the language for the wiki - it defaults to "en".  To change it to e.g.
+French:
+
+    juju config mediawiki language=fr
+
 ### Admins
 
 This will configure admin accounts for the MediaWiki instance. The expected format is user:pass
 
-    juju set mediawiki admins="tom:swordfish"
+    juju config mediawiki admins="tom:swordfish"
 
 This creates a user "tom" and sets their password to "swordfish". In the even
 you wish to add more than one admin at a time you can provide a list of
 user:pass values separated by a space " ":
 
-    juju set mediawiki admins="tom:swordfish mike:wazowsk1"
+    juju config mediawiki admins="tom:swordfish mike:wazowsk1"
 
 This will create both of those users. At this time setting the admins option to
 noting ("") will neither add or remove any existing admins. It's simply skipped.
 To avoid having the password and usernames exposed consider running the
 following after you've set up admin accounts:
 
-    juju set mediawiki admins=""
+    juju config mediawiki admins=""
 
 ## Debug ($wgDebugLogFile)
 
