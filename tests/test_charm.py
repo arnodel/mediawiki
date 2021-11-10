@@ -19,24 +19,24 @@ class TestCharm(unittest.TestCase):
         self.addCleanup(self.harness.cleanup)
         self.harness.begin()
 
+    def check_status(self, expected_status):
+        self.assertEqual(
+            self.harness.charm.unit.status,
+            expected_status,
+        )
+
     @patch('charm.install_mediawiki_packages')
     def test_install_succeeds(self, *unused):
         self.harness.charm.on.install.emit()
         charm.install_mediawiki_packages.assert_called_once()
-        self.assertEqual(
-            self.harness.charm.unit.status,
-            WaitingStatus('Mediawiki packages installed'),
-        )
+        self.check_status(WaitingStatus('Mediawiki packages installed'))
 
     @patch('charm.install_mediawiki_packages')
     def test_install_fails(self, *unused):
         charm.install_mediawiki_packages.side_effect = CalledProcessError(1, 'foo')
         self.harness.charm.on.install.emit()
         charm.install_mediawiki_packages.assert_called_once()
-        self.assertEqual(
-            self.harness.charm.unit.status,
-            BlockedStatus('Failed to install packages')
-        )
+        self.check_status(BlockedStatus('Failed to install packages'))
 
     @patch('charm.configure_mediawiki')
     @patch('charm.reload_apache')
@@ -56,7 +56,4 @@ class TestCharm(unittest.TestCase):
         self.harness.update_config({"name": "My Wiki"})
         charm.configure_mediawiki.assert_called_once()
         charm.reload_apache.assert_not_called()
-        self.assertEqual(
-            self.harness.charm.unit.status,
-            BlockedStatus("Failed to configure mediawiki")
-        )
+        self.check_status(BlockedStatus("Failed to configure mediawiki"))
