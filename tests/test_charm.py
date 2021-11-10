@@ -57,3 +57,24 @@ class TestCharm(unittest.TestCase):
         charm.configure_mediawiki.assert_called_once()
         charm.reload_apache.assert_not_called()
         self.check_status(BlockedStatus("Failed to configure mediawiki"))
+
+    @patch('charm.configure_db')
+    def test_db_relation_changed_non_leader(self, *unused):
+        with patch.object(self.harness.charm, "_install_mediawiki") as mock_install_mediawiki:
+            rel_id = self.harness.add_relation("db", "mysql")
+            self.harness.add_relation_unit(rel_id, "mysql/0")
+            db_data = {"key": "val"}
+            self.harness.update_relation_data(rel_id, "mysql/0", db_data)
+            charm.configure_db.assert_called_once_with(db_data)
+            mock_install_mediawiki.assert_not_called()
+
+    @patch('charm.configure_db')
+    def test_db_relation_changed_leader(self, *unused):
+        self.harness.set_leader()
+        with patch.object(self.harness.charm, "_install_mediawiki") as mock_install_mediawiki:
+            rel_id = self.harness.add_relation("db", "mysql")
+            self.harness.add_relation_unit(rel_id, "mysql/0")
+            db_data = {"key": "val"}
+            self.harness.update_relation_data(rel_id, "mysql/0", db_data)
+            charm.configure_db.assert_called_once_with(db_data)
+            mock_install_mediawiki.assert_called_once_with(db_data)
