@@ -186,9 +186,10 @@ class MediawikiCharm(CharmBase):
 
     def _on_website_relation_joined(self, event: RelationJoinedEvent) -> None:
         unit_data = event.relation.data[self.unit]
+        ingress_address = self.model.get_binding('website').network.ingress_address
         unit_data.update({
             "port": "80",
-            "hostname": unit_data["private-address"]
+            "hostname": str(ingress_address),
         })
 
     # Methods that help event hooks
