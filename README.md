@@ -1,4 +1,4 @@
-# mediawiki
+# Mediawiki
 
 ## Description
 
