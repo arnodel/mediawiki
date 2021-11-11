@@ -78,3 +78,5 @@ class TestCharm(unittest.TestCase):
             self.harness.update_relation_data(rel_id, "mysql/0", db_data)
             charm.configure_db.assert_called_once_with(db_data)
             mock_install_mediawiki.assert_called_once_with(db_data)
+
+    # TODO: more tests
